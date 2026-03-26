@@ -1,177 +1,167 @@
+import { useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { usePayouts, useAdjustments } from '@/hooks/usePayouts';
+import { usePayouts, type PayoutFilters } from '@/hooks/usePayouts';
+import { useDebounce } from '@/hooks/useDebounce';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PeriodFilter } from '@/components/shared/PeriodFilter';
-import { cn } from '@/lib/utils';
+import { Card, CardContent } from '@/components/ui/card';
+import { MetricCard } from '@/components/shared/MetricCard';
+import { ChevronLeft, ChevronRight, Search, DollarSign, TrendingDown, Wallet } from 'lucide-react';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
-const PERIOD_OPTIONS = [
-  { label: 'Day', value: 'day' },
-  { label: 'Week', value: 'week' },
-  { label: 'Month', value: 'month' },
-];
-
-function PeriodToggle() {
+export function PayoutsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const groupBy = searchParams.get('group_by') || 'day';
+  const [searchInput, setSearchInput] = useState(searchParams.get('search') || '');
+  const debouncedSearch = useDebounce(searchInput, 300);
 
-  function setGroupBy(value: string) {
+  const filters: PayoutFilters = useMemo(() => ({
+    page: Number(searchParams.get('page')) || 1,
+    per_page: 20,
+    search: debouncedSearch || undefined,
+  }), [searchParams, debouncedSearch]);
+
+  const { data, isLoading } = usePayouts(filters);
+
+  function updateParams(updates: Record<string, string | undefined>) {
     const next = new URLSearchParams(searchParams);
-    next.set('group_by', value);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
+    if (!('page' in updates)) next.set('page', '1');
     setSearchParams(next, { replace: true });
   }
 
-  return (
-    <div className="flex items-center gap-1 rounded-lg border p-1">
-      {PERIOD_OPTIONS.map((opt) => (
-        <Button
-          key={opt.value}
-          variant={groupBy === opt.value ? 'secondary' : 'ghost'}
-          size="sm"
-          className="text-xs h-7"
-          onClick={() => setGroupBy(opt.value)}
-        >
-          {opt.label}
-        </Button>
-      ))}
-    </div>
-  );
-}
-
-function AdjustmentsSection() {
-  const { data: adjustments, isLoading } = useAdjustments();
-
-  if (isLoading) return <Skeleton height={100} baseColor="#1f2937" highlightColor="#374151" borderRadius={12} />;
-  if (!adjustments?.length) return null;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">Adjustments</CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/50">
-              <th className="px-4 py-2 text-left font-medium">Type</th>
-              <th className="px-4 py-2 text-right font-medium">Amount</th>
-              <th className="px-4 py-2 text-left font-medium">Reason</th>
-              <th className="px-4 py-2 text-left font-medium">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {adjustments.map((adj) => (
-              <tr key={adj.id} className="border-b">
-                <td className="px-4 py-3">
-                  <Badge
-                    variant={adj.type === 'chargeback' ? 'destructive' : 'secondary'}
-                    className="text-xs"
-                  >
-                    {adj.type}
-                  </Badge>
-                </td>
-                <td className="px-4 py-3 text-right font-mono">
-                  <span className={cn((adj.amount ?? 0) < 0 && 'text-red-500')}>
-                    {formatCurrency(adj.amount)}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">{adj.reason || '—'}</td>
-                <td className="px-4 py-3 text-muted-foreground">{formatDate(adj.created_at)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
-  );
-}
-
-export function PayoutsPage() {
-  const { data: payouts, isLoading } = usePayouts();
-
-  const flatItems = payouts?.flatMap((p) =>
-    p.items.map((item) => ({
-      ...item,
-      payoutDate: p.date,
-      payoutStatus: p.status,
-    }))
-  ) ?? [];
-
-  const totals = flatItems.reduce(
-    (acc, item) => ({
-      gross: acc.gross + (item.gross_amount ?? 0),
-      fees: acc.fees + (item.fee_amount ?? 0),
-      net: acc.net + (item.net_amount ?? 0),
-    }),
-    { gross: 0, fees: 0, net: 0 }
-  );
+  const currentPage = data?.page ?? 1;
+  const totalPages = data ? Math.ceil(data.total / data.per_page) : 0;
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <h1 className="text-2xl font-bold">Payouts</h1>
-        <div className="flex items-center gap-3">
-          <PeriodFilter />
-          <PeriodToggle />
+      <h1 className="text-2xl font-bold">Payout Breakdown</h1>
+
+      {/* Summary cards */}
+      {data?.totals && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <MetricCard
+            title="Gross Revenue"
+            value={formatCurrency(data.totals.gross)}
+            icon={DollarSign}
+          />
+          <MetricCard
+            title="Total Fees"
+            value={`-${formatCurrency(data.totals.fees)}`}
+            icon={TrendingDown}
+          />
+          <MetricCard
+            title="Net Payouts"
+            value={formatCurrency(data.totals.net)}
+            icon={Wallet}
+          />
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search by product, SKU, order #..."
+            value={searchInput}
+            onChange={(e) => {
+              setSearchInput(e.target.value);
+              updateParams({ search: e.target.value || undefined, page: '1' });
+            }}
+            className="w-full rounded-md border border-input bg-background px-9 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
         </div>
       </div>
 
       {isLoading ? (
         <div className="space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => (
+          {Array.from({ length: 10 }).map((_, i) => (
             <Skeleton key={i} height={48} baseColor="#1f2937" highlightColor="#374151" />
           ))}
         </div>
-      ) : !flatItems.length ? (
+      ) : !data?.items?.length ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <p className="text-lg">No payout data</p>
         </div>
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="px-4 py-2 text-left font-medium">Date</th>
-                    <th className="px-4 py-2 text-left font-medium">Status</th>
-                    <th className="px-4 py-2 text-right font-medium">Revenue</th>
-                    <th className="px-4 py-2 text-right font-medium">Fees</th>
-                    <th className="px-4 py-2 text-right font-medium">Net</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {flatItems.map((item, i) => (
-                    <tr key={i} className="border-b">
-                      <td className="px-4 py-3 text-muted-foreground">{formatDate(item.payoutDate)}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant="outline" className="text-xs">{item.payoutStatus}</Badge>
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono">{formatCurrency(item.gross_amount)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-red-500">
-                        {(item.fee_amount ?? 0) > 0 ? `-${formatCurrency(item.fee_amount)}` : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono font-medium">{formatCurrency(item.net_amount)}</td>
+        <>
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="px-4 py-2 text-left font-medium">Product</th>
+                      <th className="px-4 py-2 text-left font-medium">SKU</th>
+                      <th className="px-4 py-2 text-left font-medium">Order</th>
+                      <th className="px-4 py-2 text-center font-medium">Qty</th>
+                      <th className="px-4 py-2 text-right font-medium">Gross</th>
+                      <th className="px-4 py-2 text-right font-medium">Fees</th>
+                      <th className="px-4 py-2 text-right font-medium">Discounts</th>
+                      <th className="px-4 py-2 text-right font-medium">Refunds</th>
+                      <th className="px-4 py-2 text-right font-medium">Net Payout</th>
+                      <th className="px-4 py-2 text-left font-medium">Date</th>
                     </tr>
-                  ))}
-                  <tr className="border-t-2 font-bold">
-                    <td className="px-4 py-3" colSpan={2}>Total</td>
-                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(totals.gross)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-red-500">-{formatCurrency(totals.fees)}</td>
-                    <td className="px-4 py-3 text-right font-mono">{formatCurrency(totals.net)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                  </thead>
+                  <tbody>
+                    {data.items.map((item) => (
+                      <tr key={item.id} className="border-b hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 max-w-[200px] truncate">{item.product || '—'}</td>
+                        <td className="px-4 py-3 font-mono text-xs">{item.sku || '—'}</td>
+                        <td className="px-4 py-3 text-muted-foreground">#{item.order_number}</td>
+                        <td className="px-4 py-3 text-center">{item.quantity}</td>
+                        <td className="px-4 py-3 text-right font-mono">{formatCurrency(item.gross_amount)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-red-400">
+                          {item.fee_amount > 0 ? `-${formatCurrency(item.fee_amount)}` : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-red-400">
+                          {item.discount_amount > 0 ? `-${formatCurrency(item.discount_amount)}` : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-red-400">
+                          {item.refund_amount > 0 ? `-${formatCurrency(item.refund_amount)}` : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-medium text-emerald-400">
+                          {formatCurrency(item.net_amount)}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground text-xs">{formatDate(item.payout_date)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
 
-      <AdjustmentsSection />
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages} — {data.total.toLocaleString()} payout items
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={data.page <= 1}
+                onClick={() => updateParams({ page: String(data.page - 1) })}
+              >
+                <ChevronLeft className="h-4 w-4" /> Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!data.has_next}
+                onClick={() => updateParams({ page: String(data.page + 1) })}
+              >
+                Next <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

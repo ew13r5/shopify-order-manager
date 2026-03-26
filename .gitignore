@@ -12,6 +12,11 @@ dist/
 .env.local
 .env.*.local
 
+# Credentials
+google-credentials.json
+*-credentials.json
+*.credentials.json
+
 # IDE
 .vscode/
 .idea/

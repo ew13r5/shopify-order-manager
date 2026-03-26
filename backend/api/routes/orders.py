@@ -42,6 +42,7 @@ def list_orders(
             "fulfillment_status": o.fulfillment_status.value if o.fulfillment_status else None,
             "total_price": float(o.total_price) if o.total_price else None,
             "created_at": str(o.order_created_at) if o.order_created_at else None,
+            "items_count": len(o.line_items) if o.line_items else 0,
         })
     return {"items": items, "total": result.total, "page": result.page,
             "per_page": result.per_page, "has_next": result.has_next}

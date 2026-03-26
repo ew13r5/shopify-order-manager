@@ -7,6 +7,7 @@ export interface OrderFilters {
   per_page: number;
   search?: string;
   status?: string;
+  fulfillment_status?: string;
   sort_by?: string;
   sort_dir?: 'asc' | 'desc';
   date_from?: string;
@@ -24,6 +25,7 @@ export function useOrders(filters: OrderFilters) {
       };
       if (filters.search) params.search = filters.search;
       if (filters.status) params.status = filters.status;
+      if (filters.fulfillment_status) params.fulfillment_status = filters.fulfillment_status;
       if (filters.sort_by) params.sort_by = filters.sort_by;
       if (filters.sort_dir) params.sort_dir = filters.sort_dir;
       if (filters.date_from) params.date_from = filters.date_from;

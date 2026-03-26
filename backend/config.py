@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     # Google Sheets
     GOOGLE_SERVICE_ACCOUNT_JSON: Optional[str] = None
+    GOOGLE_SPREADSHEET_ID: Optional[str] = None
 
     # App mode
     DATA_MODE: str = "demo"

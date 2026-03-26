@@ -10,14 +10,46 @@ import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 
-const STATUS_OPTIONS = ['all', 'open', 'closed', 'cancelled'] as const;
+const FINANCIAL_STATUS_OPTIONS = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'partially_refunded', label: 'Partially Refunded' },
+  { value: 'refunded', label: 'Refunded' },
+  { value: 'pending', label: 'Pending' },
+] as const;
 
-function statusBadgeVariant(status: string | null) {
+const FULFILLMENT_OPTIONS = [
+  { value: 'all', label: 'All fulfillment' },
+  { value: 'fulfilled', label: 'Fulfilled' },
+  { value: 'unfulfilled', label: 'Unfulfilled' },
+  { value: 'partial', label: 'Partial' },
+] as const;
+
+function financialBadge(status: string | null) {
   switch (status) {
-    case 'paid': case 'closed': return 'default' as const;
-    case 'pending': return 'secondary' as const;
-    case 'refunded': case 'cancelled': return 'destructive' as const;
-    default: return 'outline' as const;
+    case 'paid':
+      return <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Paid</Badge>;
+    case 'partially_refunded':
+      return <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Partially Refunded</Badge>;
+    case 'refunded':
+      return <Badge className="bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/15">Refunded</Badge>;
+    case 'pending':
+      return <Badge className="bg-zinc-500/15 text-zinc-400 border-zinc-500/30 hover:bg-zinc-500/15">Pending</Badge>;
+    default:
+      return <Badge variant="outline">{status || 'Unknown'}</Badge>;
+  }
+}
+
+function fulfillmentBadge(status: string | null) {
+  switch (status) {
+    case 'fulfilled':
+      return <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/15">Fulfilled</Badge>;
+    case 'unfulfilled':
+      return <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/15">Unfulfilled</Badge>;
+    case 'partial':
+      return <Badge className="bg-orange-500/15 text-orange-400 border-orange-500/30 hover:bg-orange-500/15">Partial</Badge>;
+    default:
+      return <Badge variant="outline">{status || '—'}</Badge>;
   }
 }
 
@@ -33,6 +65,7 @@ export function OrdersPage() {
     per_page: 20,
     search: debouncedSearch || undefined,
     status: searchParams.get('status') || undefined,
+    fulfillment_status: searchParams.get('fulfillment_status') || undefined,
     sort_by: searchParams.get('sort_by') || undefined,
     sort_dir: (searchParams.get('sort_dir') as 'asc' | 'desc') || undefined,
   }), [searchParams, debouncedSearch]);
@@ -73,7 +106,10 @@ export function OrdersPage() {
     setSearchParams({}, { replace: true });
   }
 
-  const hasFilters = searchParams.get('search') || searchParams.get('status');
+  const hasFilters = searchParams.get('search') || searchParams.get('status') || searchParams.get('fulfillment_status');
+
+  const currentPage = data?.page ?? 1;
+  const totalPages = data ? Math.ceil(data.total / data.per_page) : 0;
 
   return (
     <div className="space-y-4 p-6">
@@ -84,7 +120,7 @@ export function OrdersPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search orders..."
+            placeholder="Search by order #, customer, SKU..."
             value={searchInput}
             onChange={(e) => {
               setSearchInput(e.target.value);
@@ -98,12 +134,26 @@ export function OrdersPage() {
           value={searchParams.get('status') || 'all'}
           onValueChange={(value) => updateParams({ status: value === 'all' ? undefined : value, page: '1' })}
         >
-          <SelectTrigger className="w-[140px]">
+          <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
-            {STATUS_OPTIONS.map((s) => (
-              <SelectItem key={s} value={s}>{s === 'all' ? 'All statuses' : s}</SelectItem>
+            {FINANCIAL_STATUS_OPTIONS.map((s) => (
+              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={searchParams.get('fulfillment_status') || 'all'}
+          onValueChange={(value) => updateParams({ fulfillment_status: value === 'all' ? undefined : value, page: '1' })}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Fulfillment" />
+          </SelectTrigger>
+          <SelectContent>
+            {FULFILLMENT_OPTIONS.map((s) => (
+              <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -140,9 +190,11 @@ export function OrdersPage() {
                   </th>
                   <th className="px-4 py-3 text-left font-medium">Customer</th>
                   <th className="px-4 py-3 text-left font-medium">Status</th>
+                  <th className="px-4 py-3 text-center font-medium">Items</th>
                   <th className="px-4 py-3 text-right font-medium cursor-pointer hover:text-foreground" onClick={() => toggleSort('total_price')}>
                     Total{getSortIndicator('total_price')}
                   </th>
+                  <th className="px-4 py-3 text-left font-medium">Fulfillment</th>
                 </tr>
               </thead>
               <tbody>
@@ -155,12 +207,10 @@ export function OrdersPage() {
                     <td className="px-4 py-3 font-medium">#{order.order_number}</td>
                     <td className="px-4 py-3 text-muted-foreground">{formatDate(order.created_at)}</td>
                     <td className="px-4 py-3">{order.customer_name || '—'}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={statusBadgeVariant(order.financial_status)}>
-                        {order.financial_status || 'unknown'}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">{formatCurrency(order.total_price)}</td>
+                    <td className="px-4 py-3">{financialBadge(order.financial_status)}</td>
+                    <td className="px-4 py-3 text-center text-muted-foreground">{order.items_count}</td>
+                    <td className="px-4 py-3 text-right font-medium">{formatCurrency(order.total_price)}</td>
+                    <td className="px-4 py-3">{fulfillmentBadge(order.fulfillment_status)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -169,7 +219,7 @@ export function OrdersPage() {
 
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
-              Page {data.page} · {data.total} orders
+              Page {currentPage} of {totalPages} — {data.total.toLocaleString()} orders
             </span>
             <div className="flex items-center gap-2">
               <Button

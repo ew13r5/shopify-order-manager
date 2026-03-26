@@ -8,7 +8,7 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
   return (
     <div className="rounded-lg border bg-background p-2 shadow-md">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm font-bold">{payload[0].value} sold</p>
+      <p className="text-sm font-bold">${payload[0].value.toLocaleString()}</p>
     </div>
   );
 }
@@ -19,7 +19,7 @@ export const TopProductsChart = memo(function TopProductsChart() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">Top Products</CardTitle>
+        <CardTitle className="text-sm">Top Products by Revenue</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -30,10 +30,10 @@ export const TopProductsChart = memo(function TopProductsChart() {
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={data.data} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 20%)" />
-              <XAxis type="number" tick={{ fontSize: 12, fill: 'hsl(0 0% 60%)' }} />
-              <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11, fill: 'hsl(0 0% 60%)' }} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: 'hsl(0 0% 60%)' }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+              <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 11, fill: 'hsl(0 0% 70%)' }} />
               <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="quantity" fill="var(--color-chart-2)" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="revenue" fill="var(--color-chart-2)" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}

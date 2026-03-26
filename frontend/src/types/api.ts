@@ -8,6 +8,7 @@ export interface Order {
   fulfillment_status: string | null;
   total_price: number | null;
   created_at: string | null;
+  items_count: number;
 }
 
 export interface LineItem {

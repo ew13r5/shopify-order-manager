@@ -53,7 +53,7 @@ class DemoDataProvider(DataProvider):
         else:
             query = query.order_by(Order.order_created_at.desc())
 
-        items = query.offset(offset).limit(filters.per_page).all()
+        items = query.options(joinedload(Order.line_items)).offset(offset).limit(filters.per_page).all()
 
         return PaginatedResult(
             items=items,

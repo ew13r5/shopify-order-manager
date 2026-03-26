@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -5,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from models import LineItem, Order, Payout, Product
+from models import Adjustment, LineItem, Order, Payout, PayoutItem, Product
 from models.enums import FinancialStatus, FulfillmentStatus
 
 
@@ -95,18 +96,23 @@ def get_chart_data(
     period: str = "month",
 ) -> Dict[str, Any]:
     """Return chart data for the specified type."""
-    if chart_type == "revenue_timeline":
-        return _revenue_timeline(session, store_id, date_from, date_to, period)
-    elif chart_type == "top_products":
-        return _top_products(session, store_id, date_from, date_to)
-    elif chart_type == "order_status":
-        return _order_status(session, store_id, date_from, date_to)
-    elif chart_type == "payout_status":
-        return _payout_status(session, store_id, date_from, date_to)
+    handlers = {
+        "revenue": _revenue_timeline,
+        "revenue_timeline": _revenue_timeline,
+        "top_products": _top_products,
+        "order_status": _order_status,
+        "payout_timeline": _payout_timeline,
+        "payout_status": _payout_status,
+    }
+    handler = handlers.get(chart_type)
+    if handler:
+        if handler in (_revenue_timeline,):
+            return handler(session, store_id, date_from, date_to, period)
+        return handler(session, store_id, date_from, date_to)
     return {"type": chart_type, "data": []}
 
 
-def _revenue_timeline(session, store_id, date_from, date_to, period):
+def _revenue_timeline(session, store_id, date_from, date_to, period="day"):
     query = session.query(Order).filter(Order.store_id == store_id)
     if date_from:
         query = query.filter(Order.order_created_at >= date_from)
@@ -114,20 +120,27 @@ def _revenue_timeline(session, store_id, date_from, date_to, period):
         query = query.filter(Order.order_created_at <= date_to)
 
     orders = query.all()
-    from collections import defaultdict
-    groups = defaultdict(float)
+    # Use sortable key for chronological order, display key for labels
+    revenue_by_sort_key = defaultdict(float)
+    display_labels = {}
     for o in orders:
         if o.order_created_at and o.total_price:
             if period == "day":
-                key = o.order_created_at.strftime("%Y-%m-%d")
+                sort_key = o.order_created_at.strftime("%Y-%m-%d")
+                display_labels[sort_key] = o.order_created_at.strftime("%b %d")
             elif period == "week":
-                key = o.order_created_at.strftime("%Y-W%W")
+                sort_key = o.order_created_at.strftime("%Y-W%W")
+                display_labels[sort_key] = o.order_created_at.strftime("W%W %Y")
             else:
-                key = o.order_created_at.strftime("%Y-%m")
-            groups[key] += float(o.total_price)
+                sort_key = o.order_created_at.strftime("%Y-%m")
+                display_labels[sort_key] = o.order_created_at.strftime("%b %Y")
+            revenue_by_sort_key[sort_key] += float(o.total_price)
 
-    data = [{"date": k, "revenue": round(v, 2)} for k, v in sorted(groups.items())]
-    return {"type": "revenue_timeline", "data": data}
+    data = [
+        {"date": display_labels[k], "revenue": round(revenue_by_sort_key[k], 2)}
+        for k in sorted(revenue_by_sort_key.keys())
+    ]
+    return {"type": "revenue", "data": data}
 
 
 def _top_products(session, store_id, date_from, date_to, limit=10):
@@ -151,8 +164,9 @@ def _top_products(session, store_id, date_from, date_to, limit=10):
 
 
 def _order_status(session, store_id, date_from, date_to):
+    """Return fulfillment status breakdown for the pie chart."""
     query = session.query(
-        Order.financial_status,
+        Order.fulfillment_status,
         func.count(Order.id),
     ).filter(Order.store_id == store_id)
     if date_from:
@@ -160,9 +174,72 @@ def _order_status(session, store_id, date_from, date_to):
     if date_to:
         query = query.filter(Order.order_created_at <= date_to)
 
-    results = query.group_by(Order.financial_status).all()
-    data = [{"status": r[0].value if r[0] else "unknown", "count": r[1]} for r in results]
+    results = query.group_by(Order.fulfillment_status).all()
+
+    label_map = {
+        "fulfilled": "Fulfilled",
+        "unfulfilled": "Unfulfilled",
+        "partial": "Partially Fulfilled",
+    }
+
+    data = []
+    for r in results:
+        status_val = r[0].value if r[0] else "unknown"
+        data.append({
+            "status": label_map.get(status_val, status_val),
+            "count": r[1],
+        })
     return {"type": "order_status", "data": data}
+
+
+def _payout_timeline(session, store_id, date_from, date_to):
+    """Return payout data grouped by month with gross/fees/net breakdown."""
+    query = (
+        session.query(Payout)
+        .filter(Payout.store_id == store_id)
+    )
+    if date_from:
+        query = query.filter(Payout.date >= date_from)
+    if date_to:
+        query = query.filter(Payout.date <= date_to)
+
+    payouts = query.all()
+    if not payouts:
+        return {"type": "payout_timeline", "data": []}
+
+    payout_ids = [p.id for p in payouts]
+    items = session.query(PayoutItem).filter(PayoutItem.payout_id.in_(payout_ids)).all()
+
+    # Group items by payout
+    payout_item_map = defaultdict(list)
+    for item in items:
+        payout_item_map[item.payout_id].append(item)
+
+    groups = defaultdict(lambda: {"gross": 0.0, "fees": 0.0, "net": 0.0})
+    display_labels = {}
+    for p in payouts:
+        if p.date:
+            sort_key = p.date.strftime("%Y-%m")
+            display_labels[sort_key] = p.date.strftime("%b %Y")
+        else:
+            sort_key = "0000-00"
+            display_labels[sort_key] = "Unknown"
+        p_items = payout_item_map.get(p.id, [])
+        for pi in p_items:
+            groups[sort_key]["gross"] += float(pi.gross_amount or 0)
+            groups[sort_key]["fees"] += float(pi.fee_amount or 0)
+            groups[sort_key]["net"] += float(pi.net_amount or 0)
+
+    data = [
+        {
+            "date": display_labels[k],
+            "gross": round(groups[k]["gross"], 2),
+            "fees": round(groups[k]["fees"], 2),
+            "net": round(groups[k]["net"], 2),
+        }
+        for k in sorted(groups.keys())
+    ]
+    return {"type": "payout_timeline", "data": data}
 
 
 def _payout_status(session, store_id, date_from, date_to):
