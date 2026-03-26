@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/screenshots/banner.png" alt="Shopify Order Manager" width="800" />
-</p>
-
 <h1 align="center">Shopify Order Manager</h1>
 <p align="center"><strong>Stop losing track of your Shopify payouts.</strong></p>
 
