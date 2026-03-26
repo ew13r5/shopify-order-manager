@@ -9,7 +9,7 @@ from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import get_settings
-from database import SessionLocal
+from database import Base, SessionLocal, engine
 from models import Store
 from providers import ProviderManager
 
@@ -45,6 +45,10 @@ def auto_seed_demo():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # Create tables if they don't exist
+    import models  # noqa: F401 — ensure all models are registered
+    Base.metadata.create_all(bind=engine)
+
     app.state.provider_manager = ProviderManager()
     if settings.DATA_MODE == "demo":
         try:

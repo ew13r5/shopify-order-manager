@@ -1,61 +1,75 @@
-version: "3.8"
+name: shopify-order-manager
 
 services:
-  db:
+  shopify-db:
     image: postgres:15-alpine
+    container_name: shopify-order-manager-db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-shopify_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shopify_pass}
       POSTGRES_DB: ${POSTGRES_DB:-shopify_orders}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - shopify-pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shopify_user}"]
       interval: 10s
       timeout: 5s
       retries: 5
     ports:
-      - "5432:5432"
+      - "5480:5432"
 
-  redis:
+  shopify-redis:
     image: redis:7-alpine
+    container_name: shopify-order-manager-redis
     command: redis-server --appendonly yes
     volumes:
-      - redisdata:/data
+      - shopify-redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    ports:
+      - "6380:6379"
 
-  api:
+  shopify-api:
     build: ./backend
+    container_name: shopify-order-manager-api
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
-      db:
+      shopify-db:
         condition: service_healthy
-      redis:
+      shopify-redis:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "8010:8000"
     env_file: ./backend/.env
     volumes:
       - ./backend:/app
 
-  worker:
+  shopify-worker:
     build: ./backend
+    container_name: shopify-order-manager-worker
     command: >
       celery -A tasks.celery_app worker
       --pool=gevent --concurrency=100
       --loglevel=info
       --without-gossip --without-mingle --without-heartbeat
     depends_on:
-      db:
+      shopify-db:
         condition: service_healthy
-      redis:
+      shopify-redis:
         condition: service_healthy
     env_file: ./backend/.env
 
+  shopify-frontend:
+    build: ./frontend
+    container_name: shopify-order-manager-frontend
+    depends_on:
+      - shopify-api
+    ports:
+      - "3010:80"
+
 volumes:
-  pgdata:
-  redisdata:
+  shopify-pgdata:
+  shopify-redisdata:
