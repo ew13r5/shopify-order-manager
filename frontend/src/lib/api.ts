@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { ApiError } from '../types/api';
+import { useAppStore } from '../stores/appStore';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '',
@@ -8,8 +9,6 @@ const api = axios.create({
 
 // Request interceptor: attach store ID
 api.interceptors.request.use((config) => {
-  // Dynamic import to avoid circular deps
-  const { useAppStore } = require('../stores/appStore');
   const storeId = useAppStore.getState().activeStoreId;
   if (storeId) {
     config.headers['X-Store-Id'] = storeId;
